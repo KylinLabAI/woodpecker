@@ -16,13 +16,30 @@ package gitee
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
+	"golang.org/x/oauth2"
+
+	"go.woodpecker-ci.org/woodpecker/v3/server"
 	"go.woodpecker-ci.org/woodpecker/v3/server/forge"
 	forge_types "go.woodpecker-ci.org/woodpecker/v3/server/forge/types"
 	"go.woodpecker-ci.org/woodpecker/v3/server/model"
+)
+
+const (
+	authorizeTokenURL = "%s/oauth/authorize"
+	accessTokenURL    = "%s/oauth/token"
+)
+
+// Gitee implements the Forge and the Refresher interface.
+// The Refresher assertion matters as Gitee access tokens only live one day.
+var (
+	_ forge.Forge     = (*Gitee)(nil)
+	_ forge.Refresher = (*Gitee)(nil)
 )
 
 // Gitee is the Forge implementation for https://gitee.com.
@@ -70,14 +87,96 @@ func (c *Gitee) URL() string {
 	return c.url
 }
 
-// TODO(T3): implement OAuth2 login.
-func (c *Gitee) Login(context.Context, *forge_types.OAuthRequest) (*model.User, string, error) {
-	return nil, "", forge_types.ErrNotImplemented
+// oauth2Config builds the oauth2 config of the Gitee endpoints.
+func (c *Gitee) oauth2Config(ctx context.Context) (*oauth2.Config, context.Context) {
+	publicOAuthURL := c.oAuthHost
+	if publicOAuthURL == "" {
+		publicOAuthURL = c.url
+	}
+	return &oauth2.Config{
+			ClientID:     c.oAuthClientID,
+			ClientSecret: c.oAuthClientSecret,
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  fmt.Sprintf(authorizeTokenURL, publicOAuthURL),
+				TokenURL: fmt.Sprintf(accessTokenURL, c.url),
+				// Gitee expects the credentials in the request body and does
+				// not support basic auth on the token endpoint.
+				AuthStyle: oauth2.AuthStyleInParams,
+			},
+			RedirectURL: fmt.Sprintf("%s/authorize", server.Config.Server.OAuthHost),
+		},
+		context.WithValue(ctx, oauth2.HTTPClient, c.httpClient())
 }
 
-// TODO(T3): implement OAuth2 token refresh.
-func (c *Gitee) Refresh(context.Context, *model.User) (bool, error) {
-	return false, forge_types.ErrNotImplemented
+// Login authenticates the user against Gitee.
+// The first call has no code and only yields the url the user has to be
+// redirected to, the second call exchanges the code for a token.
+func (c *Gitee) Login(ctx context.Context, req *forge_types.OAuthRequest) (*model.User, string, error) {
+	config, oauth2Ctx := c.oauth2Config(ctx)
+	redirectURL := config.AuthCodeURL(req.State)
+
+	if len(req.Code) == 0 {
+		return nil, redirectURL, nil
+	}
+
+	token, err := config.Exchange(oauth2Ctx, req.Code)
+	if err != nil {
+		return nil, redirectURL, fmt.Errorf("oauth2 config exchange failed: %w", err)
+	}
+
+	account := new(User)
+	if err := c.get(ctx, token.AccessToken, "/user", nil, account); err != nil {
+		return nil, redirectURL, fmt.Errorf("fetching user info failed: %w", err)
+	}
+	if account.Login == "" {
+		return nil, redirectURL, errors.New("gitee account has no login")
+	}
+
+	user := &model.User{
+		AccessToken:   token.AccessToken,
+		RefreshToken:  token.RefreshToken,
+		Login:         account.Login,
+		Email:         account.Email,
+		ForgeRemoteID: model.ForgeRemoteID(fmt.Sprint(account.ID)),
+		Avatar:        account.AvatarURL,
+	}
+	// Gitee always reports expires_in, keep the zero value otherwise so the
+	// token is not treated as long expired.
+	if !token.Expiry.IsZero() {
+		user.Expiry = token.Expiry.UTC().Unix()
+	}
+	return user, redirectURL, nil
+}
+
+// Refresh refreshes the oauth2 token of the user.
+// Gitee access tokens are only valid for one day, so this is not optional.
+func (c *Gitee) Refresh(ctx context.Context, user *model.User) (bool, error) {
+	if user.RefreshToken == "" {
+		return false, nil
+	}
+
+	config, oauth2Ctx := c.oauth2Config(ctx)
+	config.RedirectURL = ""
+
+	source := config.TokenSource(oauth2Ctx, &oauth2.Token{
+		AccessToken:  user.AccessToken,
+		RefreshToken: user.RefreshToken,
+		// Mark the token as expired, otherwise the oauth2 package hands back
+		// the token it was given instead of refreshing it.
+		Expiry: time.Now().Add(-time.Minute),
+	})
+
+	token, err := source.Token()
+	if err != nil || len(token.AccessToken) == 0 {
+		return false, err
+	}
+
+	user.AccessToken = token.AccessToken
+	user.RefreshToken = token.RefreshToken
+	if !token.Expiry.IsZero() {
+		user.Expiry = token.Expiry.UTC().Unix()
+	}
+	return true, nil
 }
 
 // TODO(T4): fetch the teams of the user from the Gitee API.
