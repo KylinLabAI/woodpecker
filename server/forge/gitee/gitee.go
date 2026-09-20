@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -184,14 +186,63 @@ func (c *Gitee) Teams(context.Context, *model.User, *model.ListOptions) ([]*mode
 	return nil, forge_types.ErrNotImplemented
 }
 
-// TODO(T4): fetch a single repo from the Gitee API.
-func (c *Gitee) Repo(context.Context, *model.User, model.ForgeRemoteID, string, string) (*model.Repo, error) {
-	return nil, forge_types.ErrNotImplemented
+// Repo fetches a single repository of the Gitee API.
+func (c *Gitee) Repo(ctx context.Context, u *model.User, remoteID model.ForgeRemoteID, owner, name string) (*model.Repo, error) {
+	token := u.AccessToken
+
+	// The remote id survives a rename, but Gitee may not resolve it, so fall
+	// back to owner/name in that case.
+	if remoteID.IsValid() && !strings.ContainsAny(string(remoteID), "/") && !strings.Contains(string(remoteID), "..") {
+		repo := new(Repository)
+		err := c.get(ctx, token, "/repos/"+url.PathEscape(string(remoteID)), nil, repo)
+		if err == nil {
+			return toRepo(repo), nil
+		}
+		if !isNotFound(err) {
+			return nil, err
+		}
+		// Without owner/name we cannot look the repo up a second time.
+		if owner == "" || name == "" {
+			return nil, errors.Join(err, forge_types.ErrRepoNotFound)
+		}
+	}
+
+	repo := new(Repository)
+	// owner/name are single path segments; reject anything that could break
+	// out of the /repos/ path (the Go http client unescapes %2F again).
+	if strings.ContainsAny(owner+name, "/") || strings.Contains(owner+name, "..") {
+		return nil, errors.Join(fmt.Errorf("invalid repository owner or name"), forge_types.ErrRepoNotFound)
+	}
+	path := fmt.Sprintf("/repos/%s/%s", url.PathEscape(owner), url.PathEscape(name))
+	if err := c.get(ctx, token, path, nil, repo); err != nil {
+		if isNotFound(err) {
+			return nil, errors.Join(err, forge_types.ErrRepoNotFound)
+		}
+		return nil, err
+	}
+	return toRepo(repo), nil
 }
 
-// TODO(T4): fetch all repos of the user from the Gitee API.
-func (c *Gitee) Repos(context.Context, *model.User, *model.ListOptions) ([]*model.Repo, error) {
-	return nil, forge_types.ErrNotImplemented
+// Repos fetches every repository the user has access to.
+func (c *Gitee) Repos(ctx context.Context, u *model.User, p *model.ListOptions) ([]*model.Repo, error) {
+	// Gitee is paged internally.
+	if p != nil && p.Page != 1 {
+		return nil, nil
+	}
+
+	repos, err := fetchAllPages[Repository](ctx, c, u.AccessToken, "/user/repos", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*model.Repo, 0, len(repos))
+	for i := range repos {
+		if repos[i].Archived {
+			continue
+		}
+		result = append(result, toRepo(&repos[i]))
+	}
+	return result, nil
 }
 
 // TODO(T5): fetch a single file of a repo from the Gitee API.
