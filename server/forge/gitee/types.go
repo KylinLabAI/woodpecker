@@ -79,3 +79,43 @@ type Content struct {
 	Encoding string `json:"encoding"`
 	Content  string `json:"content"`
 }
+
+// FileEntry is an entry of a directory as returned by the Gitee API contents
+// endpoint for a directory. Only entries of type "file" are fetched as pipeline
+// configuration by Dir().
+type FileEntry struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+// Hook is a webhook of a repository as returned by the Gitee API.
+type Hook struct {
+	ID       int64    `json:"id"`
+	URL      string   `json:"url"`
+	Password string   `json:"password"`
+	Events   []string `json:"events"`
+}
+
+// apiPullRequest is a pull request as returned by the Gitee API.
+type apiPullRequest struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+}
+
+// apiOrg is an organization or user as returned by the Gitee API.
+type apiOrg struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Login string `json:"login"`
+	Path  string `json:"path"`
+}
+
+// apiOrgMember is a membership of a user in an organization.
+type apiOrgMember struct {
+	ID    int64  `json:"id"`
+	Login string `json:"login"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}

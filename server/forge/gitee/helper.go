@@ -15,6 +15,7 @@
 package gitee
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -117,6 +118,74 @@ func (c *Gitee) get(ctx context.Context, accessToken, path string, params url.Va
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return sanitizeError(err, path)
+	}
+
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return sanitizeError(err, path)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
+	if err != nil {
+		return fmt.Errorf("could not read gitee api response of %s: %w", path, err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return &apiError{StatusCode: resp.StatusCode, Message: errorMessage(body)}
+	}
+
+	if len(body) > maxResponseSize {
+		return fmt.Errorf("gitee api response of %s exceeds %d bytes", path, maxResponseSize)
+	}
+
+	if out == nil || len(body) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("could not decode gitee api response of %s: %w", path, err)
+	}
+	return nil
+}
+
+// post performs a POST request against the Gitee API with a JSON body and
+// decodes the json response into out (nil skips decoding).
+func (c *Gitee) post(ctx context.Context, accessToken, path string, in, out any) error {
+	return c.doRequest(ctx, http.MethodPost, accessToken, path, in, out)
+}
+
+// delete performs a DELETE request against the Gitee API.
+func (c *Gitee) delete(ctx context.Context, accessToken, path string) error {
+	return c.doRequest(ctx, http.MethodDelete, accessToken, path, nil, nil)
+}
+
+// doRequest issues a request to the Gitee API and decodes the json response.
+// It mirrors get() but supports a request body for write methods.
+func (c *Gitee) doRequest(ctx context.Context, method, accessToken, path string, in, out any) error {
+	query := url.Values{}
+	if accessToken != "" {
+		query.Set("access_token", accessToken)
+	}
+
+	target := c.apiURL() + path
+	if len(query) != 0 {
+		target += "?" + query.Encode()
+	}
+
+	var bodyReader io.Reader
+	if in != nil {
+		data, err := json.Marshal(in)
+		if err != nil {
+			return fmt.Errorf("could not encode gitee api request of %s: %w", path, err)
+		}
+		bodyReader = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, target, bodyReader)
+	if err != nil {
+		return sanitizeError(err, path)
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := c.httpClient().Do(req)

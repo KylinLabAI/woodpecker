@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,18 @@ func mockGitee(t *testing.T) (*httptest.Server, *string) {
 
 		case r.URL.Path == "/api/v5/repos/kylin/woodpecker/branches/main":
 			_, _ = w.Write([]byte(fixtures.BranchPayload))
+
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v5/repos/kylin/woodpecker/hooks":
+			_, _ = w.Write([]byte(`{"id":1}`))
+
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v5/repos/kylin/woodpecker/hooks":
+			_, _ = w.Write([]byte(`[{"id":1,"url":"https://woodpecker.test/api/hook?access_token=abc","password":"secret"}]`))
+
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v5/repos/kylin/woodpecker/hooks/"):
+			w.WriteHeader(http.StatusNoContent)
+
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v5/repos/kylin/woodpecker/statuses/"):
+			w.WriteHeader(http.StatusCreated)
 
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -178,7 +191,12 @@ func TestAcceptanceCase5Activate(t *testing.T) {
 	srv, _ := mockGitee(t)
 	client := newJourneyClient(t, srv)
 
-	err := client.Activate(context.Background(), &model.User{}, &model.Repo{FullName: "kylin/woodpecker"}, "https://hook")
+	err := client.Activate(context.Background(), &model.User{}, &model.Repo{
+		Owner:    "kylin",
+		Name:     "woodpecker",
+		FullName: "kylin/woodpecker",
+		Hash:     "h",
+	}, "https://hook")
 	assert.NoError(t, err)
 }
 

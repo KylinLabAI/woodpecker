@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 
 	"go.woodpecker-ci.org/woodpecker/v3/server"
@@ -101,6 +102,9 @@ func (c *Gitee) oauth2Config(ctx context.Context) (*oauth2.Config, context.Conte
 	return &oauth2.Config{
 			ClientID:     c.oAuthClientID,
 			ClientSecret: c.oAuthClientSecret,
+			// user_info + projects are needed to log in and list repos; hook and
+			// pull_requests are required for the Stage 2 webhook and PR features.
+			Scopes: []string{"user_info", "projects", "hook", "pull_requests"},
 			Endpoint: oauth2.Endpoint{
 				AuthURL:  fmt.Sprintf(authorizeTokenURL, publicOAuthURL),
 				TokenURL: fmt.Sprintf(accessTokenURL, c.url),
@@ -184,9 +188,23 @@ func (c *Gitee) Refresh(ctx context.Context, user *model.User) (bool, error) {
 	return true, nil
 }
 
-// TODO(T4): fetch the teams of the user from the Gitee API.
-func (c *Gitee) Teams(context.Context, *model.User, *model.ListOptions) ([]*model.Team, error) {
-	return nil, forge_types.ErrNotImplemented
+// Teams returns the organizations the user is a member of.
+func (c *Gitee) Teams(ctx context.Context, u *model.User, p *model.ListOptions) ([]*model.Team, error) {
+	token := common.UserToken(ctx, nil, u)
+
+	var orgs []apiOrg
+	if err := c.get(ctx, token, "/user/orgs", nil, &orgs); err != nil {
+		return nil, err
+	}
+
+	teams := make([]*model.Team, 0, len(orgs))
+	for i := range orgs {
+		teams = append(teams, &model.Team{
+			Login:  orgs[i].Login,
+			Avatar: "",
+		})
+	}
+	return teams, nil
 }
 
 // Repo fetches a single repository of the Gitee API.
@@ -286,13 +304,62 @@ func (c *Gitee) File(ctx context.Context, u *model.User, r *model.Repo, b *model
 	return decoded, nil
 }
 
-// TODO(T17): fetch all files of a directory from the Gitee API.
-func (c *Gitee) Dir(context.Context, *model.User, *model.Repo, *model.Pipeline, string) ([]*forge_types.FileMeta, error) {
-	return nil, forge_types.ErrNotImplemented
+// Dir fetches every file of a directory at the pipeline commit and returns their
+// pipeline configuration content.
+func (c *Gitee) Dir(ctx context.Context, u *model.User, r *model.Repo, b *model.Pipeline, dirName string) ([]*forge_types.FileMeta, error) {
+	if u == nil {
+		return nil, fmt.Errorf("no user for repository: %s", r.FullName)
+	}
+	if r == nil {
+		return nil, fmt.Errorf("no repository for directory fetch")
+	}
+
+	path := fmt.Sprintf("/repos/%s/%s/contents/%s", url.PathEscape(r.Owner), url.PathEscape(r.Name), url.PathEscape(dirName))
+	query := url.Values{}
+	query.Set("ref", b.Commit)
+
+	var entries []FileEntry
+	if err := c.get(ctx, u.AccessToken, path, query, &entries); err != nil {
+		if isNotFound(err) {
+			return nil, errors.Join(err, &forge_types.ErrConfigNotFound{Configs: []string{dirName}})
+		}
+		return nil, err
+	}
+
+	files := make([]*forge_types.FileMeta, 0, len(entries))
+	for i := range entries {
+		if entries[i].Type != "file" {
+			continue
+		}
+		content, err := c.File(ctx, u, r, b, entries[i].Path)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, &forge_types.FileMeta{
+			Name: entries[i].Path,
+			Data: content,
+		})
+	}
+	return files, nil
 }
 
-// TODO(T15): report the pipeline status back to Gitee.
-func (c *Gitee) Status(context.Context, *model.User, *model.Repo, *model.Pipeline, *model.Workflow) error {
+// Status reports the pipeline status back to Gitee as a commit status. Failures
+// are logged only and never block the pipeline.
+func (c *Gitee) Status(ctx context.Context, u *model.User, r *model.Repo, b *model.Pipeline, w *model.Workflow) error {
+	token := common.UserToken(ctx, r, u)
+
+	body := map[string]string{
+		"context":     common.GetPipelineStatusContext(r, b, w),
+		"description": common.GetPipelineStatusDescription(w.State),
+		"state":       getStatus(w.State),
+		"target_url":  common.GetPipelineStatusURL(r, b, w),
+	}
+
+	path := fmt.Sprintf("/repos/%s/%s/statuses/%s", url.PathEscape(r.Owner), url.PathEscape(r.Name), url.PathEscape(b.Commit))
+	if err := c.post(ctx, token, path, body, nil); err != nil {
+		log.Error().Err(err).Msgf("could not update status for %s#%s", r.FullName, b.Commit)
+		return nil
+	}
 	return nil
 }
 
@@ -324,21 +391,78 @@ func (c *Gitee) Netrc(u *model.User, r *model.Repo) (*model.Netrc, error) {
 	}, nil
 }
 
-// Activate is a no-op until WebHook support is implemented (T14).
-// It must never return an error, otherwise repo activation fails with HTTP 500.
-func (c *Gitee) Activate(context.Context, *model.User, *model.Repo, string) error {
+// Activate creates a webhook pointing at Woodpecker so Gitee can deliver events.
+// The webhook secret is taken from the repository hash.
+func (c *Gitee) Activate(ctx context.Context, u *model.User, r *model.Repo, link string) error {
+	hook := map[string]any{
+		"url":      link,
+		"password": r.Hash,
+		"events":   []string{"push", "tag_push", "pull_request"},
+	}
+
+	created := new(Hook)
+	path := fmt.Sprintf("/repos/%s/%s/hooks", url.PathEscape(r.Owner), url.PathEscape(r.Name))
+	if err := c.post(ctx, u.AccessToken, path, hook, created); err != nil {
+		return err
+	}
 	return nil
 }
 
-// Deactivate is a no-op until WebHook support is implemented (T14).
-// It must never return an error, otherwise repo deactivation fails.
-func (c *Gitee) Deactivate(context.Context, *model.User, *model.Repo, string) error {
+// Deactivate removes the Woodpecker webhook. A missing webhook is ignored, not
+// treated as an error, so deactivation succeeds even after a manual removal.
+// Only webhooks that point back at this Woodpecker instance are removed.
+func (c *Gitee) Deactivate(ctx context.Context, u *model.User, r *model.Repo, link string) error {
+	var hooks []Hook
+	path := fmt.Sprintf("/repos/%s/%s/hooks", url.PathEscape(r.Owner), url.PathEscape(r.Name))
+	if err := c.get(ctx, u.AccessToken, path, nil, &hooks); err != nil {
+		if isNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, hook := range hooks {
+		if hook.URL == "" || !hookBelongsToInstance(hook.URL, link) {
+			continue
+		}
+		delPath := fmt.Sprintf("/repos/%s/%s/hooks/%d", url.PathEscape(r.Owner), url.PathEscape(r.Name), hook.ID)
+		if err := c.delete(ctx, u.AccessToken, delPath); err != nil {
+			if isNotFound(err) {
+				continue
+			}
+			return err
+		}
+	}
 	return nil
 }
 
-// TODO(T17): fetch the branches of a repo from the Gitee API.
-func (c *Gitee) Branches(context.Context, *model.User, *model.Repo, *model.ListOptions) ([]string, error) {
-	return nil, forge_types.ErrNotImplemented
+// hookBelongsToInstance reports whether the given webhook url points back at the
+// Woodpecker instance identified by link (the webhook url registered at
+// activation). The comparison is host based so it tolerates differences in the
+// query string (e.g. the access_token).
+func hookBelongsToInstance(hookURL, link string) bool {
+	linkURL, err := url.Parse(link)
+	if err != nil || linkURL.Host == "" {
+		return hookURL == link
+	}
+	return strings.Contains(hookURL, linkURL.Host)
+}
+
+// Branches returns the names of all branches of the repository.
+func (c *Gitee) Branches(ctx context.Context, u *model.User, r *model.Repo, p *model.ListOptions) ([]string, error) {
+	token := common.UserToken(ctx, r, u)
+
+	path := fmt.Sprintf("/repos/%s/%s/branches", url.PathEscape(r.Owner), url.PathEscape(r.Name))
+	var branches []Branch
+	if err := c.get(ctx, token, path, nil, &branches); err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(branches))
+	for i := range branches {
+		names = append(names, branches[i].Name)
+	}
+	return names, nil
 }
 
 // BranchHead returns the latest commit of a branch.
@@ -367,22 +491,86 @@ func (c *Gitee) BranchHead(ctx context.Context, u *model.User, r *model.Repo, br
 	}, nil
 }
 
-// TODO(T16): fetch the open pull requests of a repo from the Gitee API.
-func (c *Gitee) PullRequests(context.Context, *model.User, *model.Repo, *model.ListOptions) ([]*model.PullRequest, error) {
-	return nil, forge_types.ErrNotImplemented
+// PullRequests returns the open pull requests of the repository.
+func (c *Gitee) PullRequests(ctx context.Context, u *model.User, r *model.Repo, p *model.ListOptions) ([]*model.PullRequest, error) {
+	token := common.UserToken(ctx, r, u)
+
+	query := url.Values{}
+	query.Set("state", "open")
+	path := fmt.Sprintf("/repos/%s/%s/pulls", url.PathEscape(r.Owner), url.PathEscape(r.Name))
+
+	var prs []apiPullRequest
+	if err := c.get(ctx, token, path, query, &prs); err != nil {
+		return nil, err
+	}
+
+	result := make([]*model.PullRequest, 0, len(prs))
+	for i := range prs {
+		result = append(result, &model.PullRequest{
+			Index: model.ForgeRemoteID(fmt.Sprint(prs[i].Number)),
+			Title: prs[i].Title,
+		})
+	}
+	return result, nil
 }
 
-// TODO(T13): parse incoming Gitee WebHook requests.
-func (c *Gitee) Hook(context.Context, *http.Request) (*model.Repo, *model.Pipeline, error) {
-	return nil, nil, fmt.Errorf("gitee webhook not implemented")
+// OrgMembership checks whether the user is a member of the given organization.
+func (c *Gitee) OrgMembership(ctx context.Context, u *model.User, org string) (*model.OrgPerm, error) {
+	path := fmt.Sprintf("/orgs/%s/members/%s", url.PathEscape(org), url.PathEscape(u.Login))
+
+	member := new(apiOrgMember)
+	if err := c.get(ctx, u.AccessToken, path, nil, member); err != nil {
+		if isNotFound(err) {
+			return &model.OrgPerm{}, nil
+		}
+		return nil, err
+	}
+
+	// Gitee does not expose the admin role through the membership endpoint in a
+	// structured way, so treat every member as a non-admin by default.
+	return &model.OrgPerm{Member: true, Admin: false}, nil
 }
 
-// TODO(T17): check the membership of a user in an organization.
-func (c *Gitee) OrgMembership(context.Context, *model.User, string) (*model.OrgPerm, error) {
-	return nil, forge_types.ErrNotImplemented
+// Org fetches the details of an organization or user.
+func (c *Gitee) Org(ctx context.Context, u *model.User, org string) (*model.Org, error) {
+	path := fmt.Sprintf("/orgs/%s", url.PathEscape(org))
+
+	apiOrgData := new(apiOrg)
+	if err := c.get(ctx, u.AccessToken, path, nil, apiOrgData); err != nil {
+		if !isNotFound(err) {
+			return nil, err
+		}
+		// The identifier might be a user instead of an organization.
+		userData := new(User)
+		if err := c.get(ctx, u.AccessToken, "/users/"+url.PathEscape(org), nil, userData); err != nil {
+			if isNotFound(err) {
+				return nil, fmt.Errorf("could not find organization or user %q", org)
+			}
+			return nil, err
+		}
+		return &model.Org{
+			Name:   userData.Login,
+			IsUser: true,
+		}, nil
+	}
+
+	return &model.Org{
+		ForgeID: apiOrgData.ID,
+		Name:    apiOrgData.Login,
+		IsUser:  false,
+	}, nil
 }
 
-// TODO(T17): fetch the details of an organization.
-func (c *Gitee) Org(context.Context, *model.User, string) (*model.Org, error) {
-	return nil, forge_types.ErrNotImplemented
+// getStatus maps a Woodpecker workflow state to a Gitee commit status state.
+func getStatus(state model.StatusValue) string {
+	switch state {
+	case model.StatusSuccess, model.StatusSkipped, model.StatusBlocked:
+		return "success"
+	case model.StatusFailure, model.StatusCanceled, model.StatusDeclined:
+		return "failure"
+	case model.StatusError, model.StatusKilled:
+		return "error"
+	default:
+		return "pending"
+	}
 }
