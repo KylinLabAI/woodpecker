@@ -59,6 +59,27 @@ func TestForgeGiteaRequiresURL(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestForgeGitee(t *testing.T) {
+	t.Parallel()
+	f, err := Forge(&model.Forge{
+		ID:                1,
+		Type:              model.ForgeTypeGitee,
+		URL:               "https://gitee.com",
+		OAuthClientID:     "id",
+		OAuthClientSecret: "secret",
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, f)
+	assert.Equal(t, "gitee", f.Name())
+	assert.Equal(t, "https://gitee.com", f.URL())
+}
+
+func TestForgeGiteeRequiresURL(t *testing.T) {
+	t.Parallel()
+	_, err := Forge(&model.Forge{Type: model.ForgeTypeGitee, URL: ""})
+	assert.Error(t, err)
+}
+
 func TestForgeForgejoRequiresURL(t *testing.T) {
 	t.Parallel()
 	_, err := Forge(&model.Forge{Type: model.ForgeTypeForgejo, URL: ""})
