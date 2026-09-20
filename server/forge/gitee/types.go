@@ -41,20 +41,24 @@ type Permissions struct {
 
 // Repository is a repository as returned by the Gitee API.
 type Repository struct {
-	ID            int64        `json:"id"`
-	Name          string       `json:"name"`
-	Path          string       `json:"path"`
-	FullName      string       `json:"full_name"`
-	HumanName     string       `json:"human_name"`
-	Owner         *Owner       `json:"owner"`
-	HTMLURL       string       `json:"html_url"`
-	CloneURL      string       `json:"clone_url"`
-	SSHURL        string       `json:"ssh_url"`
-	Private       bool         `json:"private"`
-	Public        bool         `json:"public"`
-	Archived      bool         `json:"archived"`
-	DefaultBranch string       `json:"default_branch"`
-	Permissions   *Permissions `json:"permissions"`
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	FullName      string `json:"full_name"`
+	HumanName     string `json:"human_name"`
+	Owner         *Owner `json:"owner"`
+	HTMLURL       string `json:"html_url"`
+	CloneURL      string `json:"clone_url"`
+	SSHURL        string `json:"ssh_url"`
+	Private       bool   `json:"private"`
+	Public        bool   `json:"public"`
+	Archived      bool   `json:"archived"`
+	DefaultBranch string `json:"default_branch"`
+	// The Gitee API returns the permission object under the singular key
+	// "permission" (both for /user/repos and /repos/{owner}/{repo}). Using the
+	// plural key never matched and silently dropped the permissions, which made
+	// every repo look inaccessible (empty repo list).
+	Permissions *Permissions `json:"permission"`
 }
 
 // CommitRef is the commit a branch or tag points to.

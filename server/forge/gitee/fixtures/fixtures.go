@@ -35,7 +35,7 @@ const RepoPayload = `{
 	"public": false,
 	"archived": false,
 	"default_branch": "main",
-	"permissions": {
+	"permission": {
 		"admin": true,
 		"push": true,
 		"pull": true
@@ -107,7 +107,7 @@ const UserReposPayload = `[
 		"private": true,
 		"archived": false,
 		"default_branch": "main",
-		"permissions": {
+		"permission": {
 			"admin": true,
 			"push": true,
 			"pull": true
@@ -128,7 +128,7 @@ const UserReposPayload = `[
 		"private": false,
 		"archived": false,
 		"default_branch": "master",
-		"permissions": {
+		"permission": {
 			"admin": false,
 			"push": true,
 			"pull": true

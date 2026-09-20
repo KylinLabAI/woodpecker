@@ -12,13 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build cgo
-
 package datastore
 
-import (
-	// Blank imports to register the sql drivers.
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
+// Supported database drivers.
+//
+// Defined once, build-tag free, so the cgo and pure-Go sqlite registration
+// files (init_cgo.go / init_sqlite_purego.go) cannot silently diverge.
+const (
+	DriverSqlite   = "sqlite3"
+	DriverMysql    = "mysql"
+	DriverPostgres = "postgres"
 )
+
+func SupportedDriver(driver string) bool {
+	switch driver {
+	case DriverMysql, DriverPostgres, DriverSqlite:
+		return true
+	default:
+		return false
+	}
+}

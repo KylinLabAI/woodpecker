@@ -12,13 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build cgo
+//go:build !cgo
 
 package datastore
 
 import (
-	// Blank imports to register the sql drivers.
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
+	"database/sql"
+
+	// modernc.org/sqlite is a pure-Go translation of SQLite and therefore
+	// does not require a C toolchain. We use it (instead of mattn/go-sqlite3)
+	// when building with CGO_ENABLED=0, e.g. cross-compiling the server for
+	// Linux from a host that has no Linux C cross-compiler.
+	//
+	// It is registered under the "sqlite3" driver name so the rest of the
+	// code base, which expects the mattn/go-sqlite3 driver name, keeps working
+	// unchanged.
+	moderncSqlite "modernc.org/sqlite"
 )
+
+func init() {
+	sql.Register("sqlite3", &moderncSqlite.Driver{})
+}

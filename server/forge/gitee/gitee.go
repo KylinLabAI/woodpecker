@@ -394,6 +394,10 @@ func (c *Gitee) Netrc(u *model.User, r *model.Repo) (*model.Netrc, error) {
 // Activate creates a webhook pointing at Woodpecker so Gitee can deliver events.
 // The webhook secret is taken from the repository hash.
 func (c *Gitee) Activate(ctx context.Context, u *model.User, r *model.Repo, link string) error {
+	if server.Config.Server.WebhookDisabled {
+		log.Warn().Msg("gitee webhook creation skipped: WOODPECKER_WEBHOOK_DISABLE is set; automatic push/PR triggers will not fire (manual triggers are unaffected)")
+		return nil
+	}
 	hook := map[string]any{
 		"url":      link,
 		"password": r.Hash,
@@ -412,6 +416,9 @@ func (c *Gitee) Activate(ctx context.Context, u *model.User, r *model.Repo, link
 // treated as an error, so deactivation succeeds even after a manual removal.
 // Only webhooks that point back at this Woodpecker instance are removed.
 func (c *Gitee) Deactivate(ctx context.Context, u *model.User, r *model.Repo, link string) error {
+	if server.Config.Server.WebhookDisabled {
+		return nil
+	}
 	var hooks []Hook
 	path := fmt.Sprintf("/repos/%s/%s/hooks", url.PathEscape(r.Owner), url.PathEscape(r.Name))
 	if err := c.get(ctx, u.AccessToken, path, nil, &hooks); err != nil {

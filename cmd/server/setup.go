@@ -46,6 +46,23 @@ import (
 	"go.woodpecker-ci.org/woodpecker/v3/server/store/types"
 )
 
+// sqlitePragmas returns the sqlite datasource URI with pragmas that prevent
+// "database is locked" (SQLITE_BUSY) errors under concurrent access. It is a
+// no-op when pragmas are already present in the datasource.
+func sqlitePragmas(ds string) string {
+	if strings.Contains(ds, "_pragma=") {
+		return ds
+	}
+	if !strings.HasPrefix(ds, "file:") {
+		ds = "file:" + ds
+	}
+	sep := "?"
+	if strings.Contains(ds, "?") {
+		sep = "&"
+	}
+	return ds + sep + "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+}
+
 func setupStore(ctx context.Context, c *cli.Command) (store.Store, error) {
 	datasource := c.String("db-datasource")
 	driver := c.String("db-driver")
@@ -73,6 +90,12 @@ func setupStore(ctx context.Context, c *cli.Command) (store.Store, error) {
 		if err := checkSqliteFileExist(datasource); err != nil {
 			return nil, fmt.Errorf("check sqlite file: %w", err)
 		}
+		// modernc.org/sqlite (the pure-Go driver used when building with
+		// CGO_ENABLED=0) defaults to busy_timeout=0, so any concurrent write
+		// fails immediately with "database is locked" (SQLITE_BUSY). Enabling
+		// WAL mode and a non-zero busy_timeout lets writes serialize safely
+		// instead of erroring out (e.g. when agents report their health).
+		datasource = sqlitePragmas(datasource)
 	}
 
 	opts := &store.Opts{
@@ -250,6 +273,7 @@ func setupEvilGlobals(ctx context.Context, c *cli.Command, s store.Store) (err e
 	} else {
 		server.Config.Server.WebhookHost = serverHost
 	}
+	server.Config.Server.WebhookDisabled = c.Bool("server-webhook-disable")
 	server.Config.Server.OAuthHost = serverHost
 	server.Config.Server.Port = c.String("server-addr")
 	server.Config.Server.PortTLS = c.String("server-addr-tls")
