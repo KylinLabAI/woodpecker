@@ -30,6 +30,7 @@ import (
 
 	"go.woodpecker-ci.org/woodpecker/v3/server"
 	"go.woodpecker-ci.org/woodpecker/v3/server/forge"
+	"go.woodpecker-ci.org/woodpecker/v3/server/forge/common"
 	forge_types "go.woodpecker-ci.org/woodpecker/v3/server/forge/types"
 	"go.woodpecker-ci.org/woodpecker/v3/server/model"
 )
@@ -295,9 +296,32 @@ func (c *Gitee) Status(context.Context, *model.User, *model.Repo, *model.Pipelin
 	return nil
 }
 
-// TODO(T6): build the netrc credentials used to clone repos.
-func (c *Gitee) Netrc(*model.User, *model.Repo) (*model.Netrc, error) {
-	return nil, forge_types.ErrNotImplemented
+// Netrc builds the .netrc credentials used to clone repositories.
+// A nil user is passed for public repos, in that case an empty credential is
+// returned so the agent can still clone without authentication.
+func (c *Gitee) Netrc(u *model.User, r *model.Repo) (*model.Netrc, error) {
+	if r == nil {
+		return nil, fmt.Errorf("no repository for netrc generation")
+	}
+
+	login := ""
+	token := ""
+	if u != nil {
+		login = u.Login
+		token = u.AccessToken
+	}
+
+	host, err := common.ExtractHostFromCloneURL(r.Clone)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.Netrc{
+		Login:    login,
+		Password: token,
+		Machine:  host,
+		Type:     model.ForgeTypeGitee,
+	}, nil
 }
 
 // Activate is a no-op until WebHook support is implemented (T14).
