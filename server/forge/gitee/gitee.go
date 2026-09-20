@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"go.woodpecker-ci.org/woodpecker/v3/server/forge"
 	forge_types "go.woodpecker-ci.org/woodpecker/v3/server/forge/types"
@@ -32,6 +33,9 @@ type Gitee struct {
 	oAuthClientSecret string
 	oAuthHost         string
 	skipVerify        bool
+
+	client     *http.Client
+	clientOnce sync.Once
 }
 
 // Opts defines configuration options.
