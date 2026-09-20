@@ -72,6 +72,7 @@ type Branch struct {
 // Content is a file of a repository as returned by the Gitee API.
 // The content is base64 encoded when the encoding is "base64".
 type Content struct {
+	Type     string `json:"type"`
 	Name     string `json:"name"`
 	Path     string `json:"path"`
 	Size     int64  `json:"size"`

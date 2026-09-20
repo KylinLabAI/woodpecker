@@ -56,6 +56,40 @@ const PublicRepoPayload = `{
 	"default_branch": "master"
 }`
 
+// ContentPayload is the response of GET /api/v5/repos/{owner}/{repo}/contents/{path}.
+const ContentPayload = `{
+	"type": "file",
+	"name": ".woodpecker.yaml",
+	"encoding": "base64",
+	"size": 36,
+	"content": "cGlwZWxpbmU6CiAgYnVpbGQ6CiAgICBpbWFnZTogZ29sYW5n",
+	"sha": "a1b2c3",
+	"url": "https://gitee.com/kylin/woodpecker/contents/.woodpecker.yaml",
+	"html_url": "https://gitee.com/kylin/woodpecker/blob/main/.woodpecker.yaml",
+	"download_url": "https://gitee.com/kylin/woodpecker/raw/main/.woodpecker.yaml"
+}`
+
+// DirContentPayload is returned when the path points at a directory.
+const DirContentPayload = `[
+	{
+		"type": "file",
+		"name": ".woodpecker.yaml",
+		"encoding": "base64",
+		"size": 38,
+		"content": "cGlwZWxpbmU6CiAgYnVpbGQ6CiAgICBpbWFnZTogZ29sYW5n"
+	}
+]`
+
+// BranchPayload is the response of GET /api/v5/repos/{owner}/{repo}/branches/{branch}.
+const BranchPayload = `{
+	"name": "main",
+	"commit": {
+		"sha": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b",
+		"url": "https://gitee.com/kylin/woodpecker/commit/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b",
+		"html_url": "https://gitee.com/kylin/woodpecker/commit/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b"
+	}
+}`
+
 // UserReposPayload is the first page of GET /api/v5/user/repos.
 const UserReposPayload = `[
 	{

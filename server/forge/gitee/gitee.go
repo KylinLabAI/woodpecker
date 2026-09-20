@@ -16,6 +16,8 @@ package gitee
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -245,9 +247,42 @@ func (c *Gitee) Repos(ctx context.Context, u *model.User, p *model.ListOptions) 
 	return result, nil
 }
 
-// TODO(T5): fetch a single file of a repo from the Gitee API.
-func (c *Gitee) File(context.Context, *model.User, *model.Repo, *model.Pipeline, string) ([]byte, error) {
-	return nil, forge_types.ErrNotImplemented
+// File fetches a single pipeline configuration file.
+// It is fetched at the exact commit of the pipeline, not at a branch head.
+func (c *Gitee) File(ctx context.Context, u *model.User, r *model.Repo, b *model.Pipeline, f string) ([]byte, error) {
+	if u == nil {
+		return nil, fmt.Errorf("no user for repository: %s", r.FullName)
+	}
+	if r == nil {
+		return nil, fmt.Errorf("no repository for file fetch")
+	}
+
+	path := fmt.Sprintf("/repos/%s/%s/contents/%s", url.PathEscape(r.Owner), url.PathEscape(r.Name), url.PathEscape(f))
+	query := url.Values{}
+	query.Set("ref", b.Commit)
+
+	var raw json.RawMessage
+	if err := c.get(ctx, u.AccessToken, path, query, &raw); err != nil {
+		if isNotFound(err) {
+			return nil, errors.Join(err, &forge_types.ErrConfigNotFound{Configs: []string{f}})
+		}
+		return nil, err
+	}
+	// Gitee returns a JSON array for a directory and an object for a file.
+	if trimmed := strings.TrimSpace(string(raw)); len(trimmed) > 0 && trimmed[0] == '[' {
+		return nil, errors.Join(errors.New("requested path is a directory"), &forge_types.ErrConfigNotFound{Configs: []string{f}})
+	}
+
+	content := new(Content)
+	if err := json.Unmarshal(raw, content); err != nil {
+		return nil, fmt.Errorf("could not decode content of %s in %s: %w", f, r.FullName, err)
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(content.Content)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode file %s of %s: %w", f, r.FullName, err)
+	}
+	return decoded, nil
 }
 
 // TODO(T17): fetch all files of a directory from the Gitee API.
@@ -282,9 +317,30 @@ func (c *Gitee) Branches(context.Context, *model.User, *model.Repo, *model.ListO
 	return nil, forge_types.ErrNotImplemented
 }
 
-// TODO(T5): fetch the head commit of a branch from the Gitee API.
-func (c *Gitee) BranchHead(context.Context, *model.User, *model.Repo, string) (*model.Commit, error) {
-	return nil, forge_types.ErrNotImplemented
+// BranchHead returns the latest commit of a branch.
+// It is required for the cron feature to work.
+func (c *Gitee) BranchHead(ctx context.Context, u *model.User, r *model.Repo, branch string) (*model.Commit, error) {
+	if u == nil {
+		return nil, fmt.Errorf("no user for repository: %s", r.FullName)
+	}
+	if r == nil {
+		return nil, fmt.Errorf("no repository for branch lookup")
+	}
+
+	path := fmt.Sprintf("/repos/%s/%s/branches/%s", url.PathEscape(r.Owner), url.PathEscape(r.Name), url.PathEscape(branch))
+
+	branchData := new(Branch)
+	if err := c.get(ctx, u.AccessToken, path, nil, branchData); err != nil {
+		return nil, err
+	}
+	if branchData.Commit == nil {
+		return nil, fmt.Errorf("branch %s of %s has no commit", branch, r.FullName)
+	}
+
+	return &model.Commit{
+		SHA:      branchData.Commit.SHA,
+		ForgeURL: branchData.Commit.URL,
+	}, nil
 }
 
 // TODO(T16): fetch the open pull requests of a repo from the Gitee API.
