@@ -430,6 +430,7 @@
     "return_to_cli": "Du kost jez den Tab zua macha und zruck zur CLI gehn.",
     "bitbucket_dc": "Bitbucket Data Center",
     "gitea": "Gitea",
+    "gitee": "Gitee",
     "forgejo": "Forgejo",
     "addon": "Addon",
     "forge_type": "Forge-Typ",

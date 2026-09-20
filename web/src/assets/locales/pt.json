@@ -742,6 +742,7 @@
     "bitbucket": "Bitbucket",
     "bitbucket_dc": "Bitbucket Data Center",
     "gitea": "Gitea",
+    "gitee": "Gitee",
     "forgejo": "Forgejo",
     "addon": "Complemento",
     "forge_type": "Tipo de forja",

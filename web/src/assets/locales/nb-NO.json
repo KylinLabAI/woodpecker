@@ -541,6 +541,7 @@
     "bitbucket": "Bitbucket",
     "bitbucket_dc": "Bitbucket Data Center",
     "gitea": "Gitea",
+    "gitee": "Gitee",
     "forgejo": "Forgejo",
     "addon": "Tillegg",
     "forge_type": "Tilbyder-type",

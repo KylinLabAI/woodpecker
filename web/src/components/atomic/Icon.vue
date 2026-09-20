@@ -92,6 +92,7 @@
 
   <SvgIcon v-else-if="name === 'forgejo'" :bg-circle="bgCircle" :path="siForgejo.path" size="1.3rem" />
   <SvgIcon v-else-if="name === 'gitea'" :bg-circle="bgCircle" :path="siGitea.path" size="1.3rem" />
+  <SvgIcon v-else-if="name === 'gitee'" :bg-circle="bgCircle" :path="siGitee.path" size="1.3rem" />
   <SvgIcon v-else-if="name === 'gitlab'" :bg-circle="bgCircle" :path="mdiGitlab" size="1.3rem" />
   <SvgIcon
     v-else-if="name === 'bitbucket' || name === 'bitbucket-dc'"
@@ -195,7 +196,7 @@ import {
   mdiUnfoldMoreHorizontal,
   mdiWrenchCogOutline,
 } from '@mdi/js';
-import { siForgejo, siGitea } from 'simple-icons';
+import { siForgejo, siGitea, siGitee } from 'simple-icons';
 
 import SvgIcon from './SvgIcon.vue';
 
@@ -233,6 +234,7 @@ export type IconNames =
   | 'bitbucket'
   | 'bitbucket-dc'
   | 'forgejo'
+  | 'gitee'
   | 'question'
   | 'list'
   | 'plus'

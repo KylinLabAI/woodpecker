@@ -722,6 +722,7 @@
     "bitbucket": "Bitbucket",
     "bitbucket_dc": "Центр даних Bitbucker",
     "gitea": "Gitea",
+    "gitee": "Gitee",
     "forgejo": "Forgejo",
     "addon": "Додаток",
     "forge_type": "Тип платформи",

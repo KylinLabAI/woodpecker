@@ -608,6 +608,7 @@
     "bitbucket": "Bitbucket",
     "bitbucket_dc": "Bitbucket Data Center",
     "gitea": "Gitea",
+    "gitee": "Gitee",
     "forgejo": "Forgejo",
     "addon": "Kiegészítő",
     "forge_type": "Kohó típusa",

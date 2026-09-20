@@ -753,6 +753,7 @@
     "bitbucket": "Bitbucket",
     "bitbucket_dc": "Bitbucket Data Center",
     "gitea": "Gitea",
+    "gitee": "Gitee",
     "forgejo": "Forgejo",
     "save": "保存",
     "add": "添加",

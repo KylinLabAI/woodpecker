@@ -406,6 +406,7 @@
     "gitlab": "GitLab",
     "bitbucket": "Bitbucket",
     "gitea": "Gitea",
+    "gitee": "Gitee",
     "forgejo": "Forgejo",
     "save": "儲存",
     "add": "新增",
