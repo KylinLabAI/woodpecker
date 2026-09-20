@@ -32,19 +32,19 @@ import (
 )
 
 const (
-	// defaultPageSize is the amount of items requested per Gitee API page.
+	// DefaultPageSize is the amount of items requested per Gitee API page.
 	// Gitee caps this at 100.
 	defaultPageSize = 100
-	// maxPages bounds the paging of fetchAllPages to protect against a
+	// MaxPages bounds the paging of fetchAllPages to protect against a
 	// Gitee instance that keeps returning full pages forever.
 	maxPages = 1000
-	// requestTimeout is the fallback timeout of a single Gitee API request.
+	// RequestTimeout is the fallback timeout of a single Gitee API request.
 	requestTimeout = 30 * time.Second
-	// maxResponseSize is the maximum size of a Gitee API response body.
+	// MaxResponseSize is the maximum size of a Gitee API response body.
 	maxResponseSize = 32 << 20
-	// idleConnTimeout is how long an idle connection is kept in the pool.
+	// IdleConnTimeout is how long an idle connection is kept in the pool.
 	idleConnTimeout = 90 * time.Second
-	// maxIdleConnsPerHost is the amount of idle connections kept per host.
+	// MaxIdleConnsPerHost is the amount of idle connections kept per host.
 	maxIdleConnsPerHost = 10
 )
 

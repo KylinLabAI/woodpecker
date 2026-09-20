@@ -28,21 +28,22 @@ import (
 	"go.woodpecker-ci.org/woodpecker/v3/server/model"
 )
 
-// setOAuthHost points the global oauth host at url for the duration of the test.
-// Tests using it must not run in parallel as server.Config is a package global.
-func setOAuthHost(t *testing.T, url string) {
+// setOAuthHost points the global oauth host at the test server for the
+// duration of the test. Tests using it must not run in parallel as
+// server.Config is a package global.
+func setOAuthHost(t *testing.T) {
 	t.Helper()
 
+	const oauthHost = "http://woodpecker.test"
 	previous := server.Config.Server.OAuthHost
-	server.Config.Server.OAuthHost = url
+	server.Config.Server.OAuthHost = oauthHost
 	t.Cleanup(func() {
 		server.Config.Server.OAuthHost = previous
 	})
 }
 
 func TestOAuth2Config(t *testing.T) {
-
-	setOAuthHost(t, "http://woodpecker.test")
+	setOAuthHost(t)
 
 	client := &Gitee{
 		url:               "https://gitee.com",
@@ -60,8 +61,7 @@ func TestOAuth2Config(t *testing.T) {
 }
 
 func TestOAuth2ConfigUsesPublicOAuthHost(t *testing.T) {
-
-	setOAuthHost(t, "http://woodpecker.test")
+	setOAuthHost(t)
 
 	client := &Gitee{url: "http://internal.gitee", oAuthHost: "https://gitee.com"}
 
@@ -74,8 +74,7 @@ func TestOAuth2ConfigUsesPublicOAuthHost(t *testing.T) {
 }
 
 func TestLoginWithoutCodeOnlyReturnsRedirectURL(t *testing.T) {
-
-	setOAuthHost(t, "http://woodpecker.test")
+	setOAuthHost(t)
 
 	client := &Gitee{url: "https://gitee.com", oAuthClientID: "id"}
 
@@ -89,8 +88,7 @@ func TestLoginWithoutCodeOnlyReturnsRedirectURL(t *testing.T) {
 }
 
 func TestLoginExchangesCodeForUser(t *testing.T) {
-
-	setOAuthHost(t, "http://woodpecker.test")
+	setOAuthHost(t)
 
 	tokenCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -137,8 +135,7 @@ func TestLoginExchangesCodeForUser(t *testing.T) {
 }
 
 func TestLoginFailsOnTokenError(t *testing.T) {
-
-	setOAuthHost(t, "http://woodpecker.test")
+	setOAuthHost(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -156,8 +153,7 @@ func TestLoginFailsOnTokenError(t *testing.T) {
 }
 
 func TestLoginFailsOnUserInfoError(t *testing.T) {
-
-	setOAuthHost(t, "http://woodpecker.test")
+	setOAuthHost(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -179,8 +175,7 @@ func TestLoginFailsOnUserInfoError(t *testing.T) {
 }
 
 func TestRefreshUpdatesBothTokens(t *testing.T) {
-
-	setOAuthHost(t, "http://woodpecker.test")
+	setOAuthHost(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.NoError(t, r.ParseForm())
@@ -209,7 +204,6 @@ func TestRefreshUpdatesBothTokens(t *testing.T) {
 }
 
 func TestRefreshWithoutRefreshToken(t *testing.T) {
-
 	user := &model.User{AccessToken: "at"}
 
 	updated, err := (&Gitee{url: "https://gitee.com"}).Refresh(t.Context(), user)
@@ -220,8 +214,7 @@ func TestRefreshWithoutRefreshToken(t *testing.T) {
 }
 
 func TestRefreshReturnsFalseOnError(t *testing.T) {
-
-	setOAuthHost(t, "http://woodpecker.test")
+	setOAuthHost(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
